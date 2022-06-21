@@ -5,7 +5,7 @@ import dev.JustRed23.LibraryDownloader.utils.MD5;
 import java.io.File;
 import java.io.IOException;
 
-public class Library {
+public final class Library {
 
     public final String repo;
     public final String group;
