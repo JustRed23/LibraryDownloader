@@ -49,11 +49,13 @@ public final class LibraryDownloader {
     }
 
     private void updateLibraries() throws IOException, LibraryDownloadException {
-        toRemove.forEach(libToRemove -> {
-            File lib = new File(LIBRARIES_FOLDER, libToRemove.getPath());
-            if (lib.exists())
+        for (Library remove : toRemove) {
+            File lib = new File(LIBRARIES_FOLDER, remove.getPath());
+            if (lib.exists()) {
+                write("WARN - Removing old library: " + lib.getName());
                 lib.delete();
-        });
+            }
+        }
 
         ProgressBarBuilder builder = new ProgressBarBuilder()
                 .setTaskName("Downloading libraries")
@@ -63,10 +65,10 @@ public final class LibraryDownloader {
 
         ProgressBar progressBar = builder.build();
 
-        for (Library library : toDownload) {
-            progressBar.setExtraMessage(library.getFileName());
-            File lib = new File(LIBRARIES_FOLDER, library.getPath() + library.getFileName());
-            downloadLibrary(library, lib, 0);
+        for (Library download : toDownload) {
+            progressBar.setExtraMessage(download.getFileName());
+            File lib = new File(LIBRARIES_FOLDER, download.getPath() + download.getFileName());
+            downloadLibrary(download, lib, 0);
             progressBar.step();
         }
         progressBar.setExtraMessage("");
