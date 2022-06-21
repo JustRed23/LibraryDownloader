@@ -128,26 +128,21 @@ public final class LibraryDownloader {
         return !toRemove.isEmpty() || !toDownload.isEmpty();
     }
 
-    public File getServerJar(String downloadURL, String checksum) throws Exception {
-        File serverJar = new File(LIBRARIES_FOLDER, "server.jar");
-        File patchedJar = new File(LIBRARIES_FOLDER, "server_patched.jar");
-        if (patchedJar.exists())
-            patchedJar.delete();
+    public File getServerJar(String downloadURL, String jarName, String checksum) throws Exception {
+        File serverJar = new File(LIBRARIES_FOLDER, jarName + ".jar");
 
         if (serverJar.exists()) {
             if (MD5.checkMD5(serverJar, checksum)) {
-                Files.copy(serverJar.toPath(), patchedJar.toPath());
-                return patchedJar;
+                return serverJar;
             } else serverJar.delete();
         }
 
         if (!serverJar.exists()) {
-            ServerLibrary serverLibrary = new ServerLibrary(downloadURL, "server", checksum);
+            ServerLibrary serverLibrary = new ServerLibrary(downloadURL, jarName, checksum);
             downloadLibrary(serverLibrary, serverJar, 0);
-            Files.copy(serverJar.toPath(), patchedJar.toPath());
         }
 
-        return patchedJar;
+        return serverJar;
     }
 
     public List<Library> getLibraries() {
