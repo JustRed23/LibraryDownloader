@@ -1,12 +1,11 @@
-package dev.JustRed23.LibraryDownloader;
+package dev.JustRed23.LibraryDownloader.lib;
 
 import dev.JustRed23.LibraryDownloader.utils.MD5;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
 
-public final class Library {
+public class Library {
 
     public final String repo;
     public final String group;

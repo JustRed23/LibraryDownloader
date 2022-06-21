@@ -2,6 +2,8 @@ package dev.JustRed23.LibraryDownloader;
 
 import com.google.gson.*;
 import dev.JustRed23.LibraryDownloader.error.LibraryDownloadException;
+import dev.JustRed23.LibraryDownloader.lib.Library;
+import dev.JustRed23.LibraryDownloader.lib.ServerLibrary;
 import dev.JustRed23.LibraryDownloader.utils.MD5;
 import me.tongfei.progressbar.ProgressBar;
 import me.tongfei.progressbar.ProgressBarBuilder;
@@ -13,6 +15,7 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -20,7 +23,7 @@ import java.util.stream.StreamSupport;
 
 public final class LibraryDownloader {
 
-    private final FileWriter logWriter;
+    private FileWriter logWriter;
     private final File LIBRARIES_FOLDER;
     private final Reader LIBRARIES_JSON;
 
@@ -46,6 +49,7 @@ public final class LibraryDownloader {
         log("The libraries are up to date");
 
         logWriter.close();
+        logWriter = null;
     }
 
     private void updateLibraries() throws IOException, LibraryDownloadException {
@@ -124,6 +128,28 @@ public final class LibraryDownloader {
         return !toRemove.isEmpty() || !toDownload.isEmpty();
     }
 
+    public File getServerJar(String downloadURL, String checksum) throws Exception {
+        File serverJar = new File(LIBRARIES_FOLDER, "server.jar");
+        File patchedJar = new File(LIBRARIES_FOLDER, "server_patched.jar");
+        if (patchedJar.exists())
+            patchedJar.delete();
+
+        if (serverJar.exists()) {
+            if (MD5.checkMD5(serverJar, checksum)) {
+                Files.copy(serverJar.toPath(), patchedJar.toPath());
+                return patchedJar;
+            } else serverJar.delete();
+        }
+
+        if (!serverJar.exists()) {
+            ServerLibrary serverLibrary = new ServerLibrary(downloadURL, "server", checksum);
+            downloadLibrary(serverLibrary, serverJar, 0);
+            Files.copy(serverJar.toPath(), patchedJar.toPath());
+        }
+
+        return patchedJar;
+    }
+
     public List<Library> getLibraries() {
         return libraries;
     }
@@ -185,7 +211,7 @@ public final class LibraryDownloader {
     }
     private void downloadLibrary(Library lib, File file, int tries) throws IOException, LibraryDownloadException {
         if (tries == 0)
-            write(String.format("%s%n", "Downloading File: " + file.getName()));
+            write("INFO - Downloading File: " + file.getName());
 
         file.getParentFile().mkdirs();
         file.createNewFile();
