@@ -21,17 +21,14 @@ import java.util.stream.StreamSupport;
 public final class LibraryDownloader {
 
     private final FileWriter logWriter;
-    private final File LIBRARIES_FOLDER, LIBRARIES_JSON;
+    private final File LIBRARIES_FOLDER;
+    private final Reader LIBRARIES_JSON;
 
     private List<Library> libraries, toDownload, toRemove;
 
-    public LibraryDownloader(File libraries_folder, File libraries_json) throws IOException {
+    public LibraryDownloader(File libraries_folder, Reader libraries_json) throws IOException {
         this.LIBRARIES_FOLDER = libraries_folder;
         this.LIBRARIES_JSON = libraries_json;
-
-        libraries = new ArrayList<>();
-        toDownload = new ArrayList<>();
-        toRemove = new ArrayList<>();
 
         File log = new File("logs/LibraryDownloader.log");
         if (log.exists())
@@ -39,14 +36,16 @@ public final class LibraryDownloader {
         log.getParentFile().mkdirs();
         log.createNewFile();
 
-        logWriter = new FileWriter(log, true);
+        logWriter = new FileWriter(log, false);
     }
 
     public void start() throws Exception {
-        boolean needs_update = librariesNeedUpdate();
-
-        if(needs_update)
+        if(librariesNeedUpdate())
             updateLibraries();
+
+        log("The libraries are up to date");
+
+        logWriter.close();
     }
 
     private void updateLibraries() throws IOException, LibraryDownloadException {
@@ -56,49 +55,65 @@ public final class LibraryDownloader {
                 lib.delete();
         });
 
+        ProgressBarBuilder builder = new ProgressBarBuilder()
+                .setTaskName("Downloading libraries")
+                .setInitialMax(toDownload.size())
+                .setUpdateIntervalMillis(100)
+                .setStyle(ProgressBarStyle.ASCII);
+
+        ProgressBar progressBar = builder.build();
+
         for (Library library : toDownload) {
+            progressBar.setExtraMessage(library.getFileName());
             File lib = new File(LIBRARIES_FOLDER, library.getPath() + library.getFileName());
             downloadLibrary(library, lib, 0);
+            progressBar.step();
         }
+        progressBar.setExtraMessage("");
+        progressBar.close();
     }
 
     private boolean librariesNeedUpdate() throws Exception {
         log("Checking libraries, please wait...");
+
+        if (LIBRARIES_JSON == null) {
+            error("The libraries json file does not exist.");
+            throw new FileNotFoundException("The libraries json file does not exist.");
+        }
+
         if (!LIBRARIES_FOLDER.exists()) {
             log("Libraries folder does not exist, creating...");
             LIBRARIES_FOLDER.mkdir();
         }
 
-        if (!LIBRARIES_JSON.exists()) {
-            error("The libraries json file does not exist.");
-            throw new FileNotFoundException("The libraries json file does not exist.");
-        }
+        JsonArray result = parseLibrariesJson(LIBRARIES_JSON);
 
-        JsonArray result = parseLibrariesJson(new BufferedReader(new FileReader(LIBRARIES_JSON)));
+        libraries = new ArrayList<>();
+        toDownload = new ArrayList<>();
+        toRemove = new ArrayList<>();
 
-        ProgressBarBuilder builder = new ProgressBarBuilder()
-                .setTaskName("Checking libraries...")
-                .setUpdateIntervalMillis(100)
-                .setStyle(ProgressBarStyle.ASCII);
-
-        ProgressBar.wrap(StreamSupport.stream(result.spliterator(), true).parallel(), builder).forEach(jsonElement -> {
+        StreamSupport.stream(result.spliterator(), true).parallel().forEach(jsonElement -> {
             try {
                 Library newest = decode(jsonElement.getAsJsonObject()); //Get the new library from the json object and turn it into a library object
                 Library foundOnPC = getLibraryFromPC(newest); //Get the library from the PC if it exists
 
                 if (foundOnPC == null) {
-                    System.out.println("Library '" + newest.getFileName() + "' not found on PC, adding to list to download...");
+                    write("WARN - Library '" + newest.getFileName() + "' not found on PC, adding to list to download...");
                     toDownload.add(newest);
+                    libraries.add(newest);
                     return;
                 }
 
                 if (!newest.matches(foundOnPC)) {
-                    System.out.println("Library '" + foundOnPC.getFileName() + "' found on PC, but is outdated, adding to list to download...");
+                    write("WARN - Library '" + foundOnPC.getFileName() + "' found on PC, but is outdated, adding to list to download...");
                     toRemove.add(foundOnPC);
                     toDownload.add(newest);
+                    libraries.add(newest);
+                    return;
                 }
 
-                System.out.println("Library '" + foundOnPC.getFileName() + "' found on PC and is up to date.");
+                write("INFO - Library '" + foundOnPC.getFileName() + "' found on PC and is up to date.");
+                libraries.add(foundOnPC);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -114,10 +129,9 @@ public final class LibraryDownloader {
     //HELPER METHODS
     private JsonArray parseLibrariesJson(Reader reader) throws IOException {
         Gson gson = new GsonBuilder().create();
-        JsonElement libraries = gson.fromJson(reader, JsonElement.class);
-        String version = libraries.getAsJsonObject().get("version").getAsString();
-        log("Library Version: " + version);
-        return libraries.getAsJsonObject().get("libraries").getAsJsonArray();
+        JsonObject libraries = gson.fromJson(reader, JsonElement.class).getAsJsonObject();
+        log("Libraries JSON version: " + libraries.get("version").getAsString());
+        return libraries.get("libraries").getAsJsonArray();
     }
     private Library decode(JsonObject json) {
         String fullName = json.get("name").getAsString();
@@ -166,28 +180,10 @@ public final class LibraryDownloader {
         }
 
         return null;
-        /*File first = files[0];
-        String fileName = first.getName();
-
-        System.out.println("First file: " + fileName); //TODO: DELETE
-
-        String repo = library.repo;
-        String group = library.group;
-        String artifact = library.artifact;
-        String classifier = library.classifier;
-
-        int index = fileName.indexOf(artifact) + artifact.length() + 1;
-        String version = fileName.substring(index, fileName.indexOf("." + library.ext));
-        if (!classifier.isEmpty())
-            version = fileName.substring(index, fileName.indexOf(classifier));
-
-        String ext = library.ext;
-
-        return new Library(repo, group, artifact, version, classifier, ext, MD5.get(path + "/" + fileName), library.skipMD5);*/
     }
-    private File downloadLibrary(Library lib, File file, int tries) throws IOException, LibraryDownloadException {
+    private void downloadLibrary(Library lib, File file, int tries) throws IOException, LibraryDownloadException {
         if (tries == 0)
-            log(String.format("%s%n", "Downloading Jar: " + file.getName()));
+            write(String.format("%s%n", "Downloading File: " + file.getName()));
 
         file.getParentFile().mkdirs();
         file.createNewFile();
@@ -205,17 +201,16 @@ public final class LibraryDownloader {
 
         if (!lib.checkMD5(file)) {
             if (tries < 3) {
-                logWriter.write("The downloaded file '" + file.getName() + "' has an invalid MD5 checksum. Redownloading... Try (" + ++tries + "/3)");
+                write("WARN - The downloaded file '" + file.getName() + "' has an invalid MD5 checksum. Redownloading... Try (" + ++tries + "/3)");
                 file.delete();
                 downloadLibrary(lib, file, tries);
             } else {
-                System.out.println();
                 error("Failed to download file '" + file.getName() + "' after 3 tries. Aborting...");
+                file.delete();
                 logWriter.close();
                 throw new LibraryDownloadException(lib.getFileName());
             }
         }
-        return file;
     }
     private void log(String message) throws IOException {
         System.out.println(message);
@@ -227,6 +222,6 @@ public final class LibraryDownloader {
     }
     private void write(String message) throws IOException {
         if (logWriter != null)
-            logWriter.write(message);
+            logWriter.write(String.format("%s%n", message));
     }
 }
